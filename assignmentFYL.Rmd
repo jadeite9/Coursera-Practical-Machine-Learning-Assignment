@@ -5,103 +5,70 @@ date: "Saturday, June 21, 2014"
 output: html_document
 ---
 
-This assignment requires the use of selected data from 6 fitness enthusiasts to build a model for the correct and incorrect use of the fitness equipment.
+This assignment requires the use of sensors data from 6 fitness enthusiasts to build a model to classify the correct and incorrect use of the fitness equipment.
 
-The codes run on R using the Caret package.
+The codes run on R using the Caret and Kernlab package.
 
 ```{r}
 library(caret)
+library(kernlab)
 set.seed(327)
 ```
 
-Import the full data from its source (http://groupware.les.inf.puc-rio.br/har) and use a subset of the training data that gives the accelerometers readings and all the outcome for the 5 different classes.
+Import the full data from its source (http://groupware.les.inf.puc-rio.br/har) and use a subset of the training data that gives the sensors readings and all the outcome for the 5 different classes. Select 8000 rows out of the 39242 observations to build and validate the model.
 
 ```{r}
-pmldata = read.csv(file="pml-training-all.csv")
-
-pmldatas = data.frame(pmldata$accel_belt_x,pmldata$accel_belt_y, pmldata$accel_belt_z, pmldata$accel_arm_x,pmldata$accel_arm_y, pmldata$accel_arm_z, pmldata$accel_dumbbell_x, pmldata$accel_dumbbell_y, pmldata$accel_dumbbell_z, pmldata$accel_forearm_x, pmldata$accel_forearm_y, pmldata$accel_forearm_z, pmldata$classe)
+pmldataA = read.csv(file="pml-training-all1.csv")
+pmldata = pmldataA[sample(nrow(pmldataA),size=8000,replace=FALSE),]
 ```
 
-Let's take a quick look at the types of predictors to be used.
 
-```{r}
-str(pmldatas)
-```
-
-A visual inspection the data is performed, with the aim to suggest possible methods to model them.
-
-```{r}
-qplot(pmldata$accel_belt_x, pmldata$accel_belt_y, colour=pmldata$classe)
-qplot(pmldata$accel_arm_x, pmldata$accel_arm_y, colour=pmldata$classe)
-qplot(pmldata$accel_dumbbell_x, pmldata$accel_dumbbell_y, colour=pmldata$classe)
-qplot(pmldata$accel_forearm_x, pmldata$accel_forearm_y, colour=pmldata$classe)
-```
-
-As seen from the plots, it can be difficult to use linear regression models to represent the data. Howeverm model-free supervised learning methods such as k-nearest neighbour may be used to cluster the data very neatly.
-
-So, to start the modeling process, splice the data with 70% of it to be used for training and the remaining for prediction and testing.
+To start the modeling process, splice the data with 70% of it to be used for training and the remaining for prediction and testing.
 
 
 ```{r}
-inTrain = createDataPartition(y=pmldatas$pmldata.classe, p=.7, list=FALSE)
+inTrain = createDataPartition(y=pmldata$classe, p=.7, list=FALSE)
 
-pmlTr = pmldatas[inTrain,] ## training data
-pmlTt = pmldatas[-inTrain,] ## testing data
+pmlTr = pmldata[inTrain,] ## training data
+pmlTt = pmldata[-inTrain,] ## testing data
 
 dim(pmlTr)
 dim(pmlTt)
 ```
 
-Use the k- nearest neighbour classification method in the caret Package to form 5 classes of results, "A","B","C","D" and "E" using a 10-fold cross validation. 
+In view of the large number of predictors in the data, a Principal Component Analysis (PCA) can be done as a pre-processing step to reduce the number of predictors.  
 
 ```{r}
-modelPml = train(pmldata.classe ~ .  , method = "knn", preProcess = c("center", "scale"), tuneLength = 10, trControl = trainControl(method = "cv"), data = pmlTr)
-
-## predict the results in the test set
-predTt = predict(modelPml, newdata = pmlTt)
-
-## display the results
-confusionMatrix(predTt, pmlTt$pmldata.classe)
+## use pca
+preProc = preProcess(pmlTr[,-53], method="pca" ) 
+preProc
 ```
 
-Using the confusion matrix to validate the prediction results, and it can be seen that the knn model works very well, yielding approximately 94% accuracy. The sensitivity (recall) and specificity (precision) for the 5 classes are high at >90%. The 10-fold cross validation has been very balanced with more than 95% accuracy, thus demonstrating a robust and reliable model which can be confidently applied onto the 20 test cases. 
+In this dataset, 26 components are kept to capture 95 percent of the variance.
+
+A Support Vector Machine (SVM) classification model is then applied on the reduced training dataset using a 10-fold cross-validation.
 
 ```{r}
-pmldataT = read.csv("pml-testing.csv")
-pmldataTs = data.frame(pmldataT$accel_belt_x,pmldataT$accel_belt_y, pmldataT$accel_belt_z, pmldataT$accel_arm_x,pmldataT$accel_arm_y, pmldataT$accel_arm_z, pmldataT$accel_dumbbell_x, pmldataT$accel_dumbbell_y, pmldataT$accel_dumbbell_z, pmldataT$accel_forearm_x, pmldataT$accel_forearm_y, pmldataT$accel_forearm_z)
+pmlTrPCA = predict(preProc, pmlTr[,-53]) ## PCA treated training data
+pmlModelPCA = train(pmlTr$classe ~., method = "svmRadial", tuneLength = 10, preProc = c("center","scale"), trControl = trainControl(method = "cv"), data = pmlTrPCA)
+plot(pmlModelPCA, metric="Accuracy")
 ```
 
-Predict the class probabilities.
+With the use of cross-validation, the accuracy of the the model is high at 95% and above.
+
+Next, to find the out-of-sample errors, the test data is pre-processed with the  PCA model and the outcome is predicted using the SVM model.
 
 ```{r}
-predT20test = predict(modelPml$finalModel, newdata = pmldataTs)
+pmlTtPCA = predict(preProc, pmlTt[,-53]) ## PCA treated test data
+predClasse = predict(pmlModelPCA, pmlTtPCA) ## apply the model on the treated data
+confusionMatrix(predClasse,pmlTt$classe)
 ```
 
-Display the result in terms of the classes for the 20 cases.
+Using the confusion matrix to validate the prediction results, and it can be seen that the svm model works very well, yielding approximately 96% accuracy. The sensitivity (recall) and specificity (precision) for the 5 classes are high at more than 93%. The 10-fold cross validation has been very balanced with more than 96% accuracy, thus demonstrating a robust and reliable model which can be confidently applied onto the 20 test cases. 
 
 ```{r}
-result = rep(c(0), 12)
-for (i in 1:20){ 
-  
-  result[i]= which.max(predT20test[i,])
-  if (result[i] == 1) 
-  {result[i] = "A"
-  }
-  else if (result[i] == 2) 
-  {result[i] = "B"
-  }
-  else if (result[i] == 3) 
-  {result[i] = "C"
-  }
-  else if (result[i] == 4) 
-  {result[i] = "D"
-  }
-  else
-  {result[i] = "E"
-  }
-  
-}
-
-print(result)
+pmldataT = read.csv("pml-testing1.csv")
+pmlTtPCA20 = predict(preProc, pmldataT[,-53])
+predict(pmlModelPCA, pmlTtPCA20)
 ```
 
